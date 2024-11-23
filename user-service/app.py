@@ -19,6 +19,7 @@ def object_id_to_str(obj):
         return str(obj)
     return obj
 
+# --- Regular User Registration and Login ---
 # User Registration (POST /register)
 @app.route('/register', methods=['POST'])
 def register():
@@ -66,6 +67,76 @@ def login():
         print(f"Error: {e}")
         return jsonify({"error": "An error occurred while processing the login"}), 500
 
+# --- Admin Routes ---
+# Admin Registration (POST /admin/register)
+@app.route('/admin/register', methods=['POST'])
+def admin_register():
+    try:
+        data = request.json
+        if not data.get('username') or not data.get('password'):
+            return jsonify({"error": "Username and password are required"}), 400
+
+        # Check if the admin already exists
+        if db.admins.find_one({"username": data['username']}):
+            return jsonify({"error": "Admin already exists"}), 400
+
+        # Insert the new admin
+        db.admins.insert_one({
+            "username": data['username'],
+            "password": generate_password_hash(data['password']),
+        })
+        return jsonify({"message": "Admin registered successfully"}), 201
+    except Exception as e:
+        print(f"Error: {e}")
+        return jsonify({"error": "An error occurred while processing the admin registration"}), 500
+
+# Admin Login (POST /admin/login)
+@app.route('/admin/login', methods=['POST'])
+def admin_login():
+    try:
+        data = request.json
+        username = data.get('username')
+        password = data.get('password')
+
+        if not username or not password:
+            return jsonify({"error": "Username and password are required"}), 400
+
+        admin = db.admins.find_one({"username": username})
+        if not admin:
+            return jsonify({"error": "Invalid username or password"}), 400
+
+        if not check_password_hash(admin['password'], password):
+            return jsonify({"error": "Invalid username or password"}), 400
+
+        return jsonify({"message": "Admin login successful"}), 200
+    except Exception as e:
+        print(f"Error: {e}")
+        return jsonify({"error": "An error occurred while processing the admin login"}), 500
+
+# Admin: Get All Users (GET /admin/users)
+@app.route('/admin/users', methods=['GET'])
+def get_users():
+    try:
+        users = list(db.users.find())
+        users = [{key: object_id_to_str(value) for key, value in user.items()} for user in users]
+        return jsonify(users), 200
+    except Exception as e:
+        print(f"Error: {e}")
+        return jsonify({"error": "An error occurred while fetching users"}), 500
+
+# Admin: Delete User (DELETE /admin/users/<user_id>)
+@app.route('/admin/users/<user_id>', methods=['DELETE'])
+def delete_user(user_id):
+    try:
+        result = db.users.delete_one({"_id": ObjectId(user_id)})
+        if result.deleted_count == 0:
+            return jsonify({"error": "User not found"}), 404
+        return jsonify({"message": "User deleted successfully"}), 200
+    except Exception as e:
+        print(f"Error: {e}")
+        return jsonify({"error": "An error occurred while deleting the user"}), 500
+
+# --- Expense Routes ---
 # Add Expense (POST /expenses)
 @app.route('/expenses', methods=['POST'])
 def add_expense():
