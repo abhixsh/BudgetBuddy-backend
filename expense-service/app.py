@@ -3,9 +3,8 @@ from pymongo import MongoClient
 
 app = Flask(__name__)
 
-# MongoDB Atlas connection
-mongo_client = MongoClient("MONGODB_URI=mongodb+srv://alokaabishek9:jrTKPYC3wc0eApYt@nutricare.lmquo7d.mongodb.net/?retryWrites=true&w=majority&appName=NutriCare")
-db = mongo_client['expense_db']
+mongo_client = MongoClient("mongodb+srv://alokaabishek9:jrTKPYC3wc0eApYt@nutricare.lmquo7d.mongodb.net/?retryWrites=true&w=majority&appName=NutriCare")
+db = mongo_client['user_db']
 
 @app.route('/expenses', methods=['POST'])
 def add_expense():
