@@ -3,6 +3,8 @@ from pymongo import MongoClient
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_cors import CORS
 from bson import ObjectId
+import jwt
+import datetime
 
 app = Flask(__name__)
 
@@ -13,14 +15,37 @@ CORS(app, origins=["http://localhost:5173"], supports_credentials=True)  # Allow
 mongo_client = MongoClient("mongodb+srv://alokaabishek9:jrTKPYC3wc0eApYt@nutricare.lmquo7d.mongodb.net/?retryWrites=true&w=majority&appName=NutriCare")
 db = mongo_client['user_db']
 
+# Secret key for JWT encoding/decoding
+SECRET_KEY = 'your_secret_key'
+
 # Function to convert MongoDB ObjectId to string
 def object_id_to_str(obj):
     if isinstance(obj, ObjectId):
         return str(obj)
     return obj
 
+# --- User Authentication ---
+# Function to generate JWT token
+def generate_token(user_id):
+    expiration_time = datetime.datetime.utcnow() + datetime.timedelta(hours=1)
+    payload = {
+        'user_id': str(user_id),
+        'exp': expiration_time
+    }
+    token = jwt.encode(payload, SECRET_KEY, algorithm='HS256')
+    return token
+
+# Function to verify JWT token and get user ID
+def verify_token(token):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
+        return payload['user_id']
+    except jwt.ExpiredSignatureError:
+        return None
+    except jwt.InvalidTokenError:
+        return None
+
 # --- Regular User Registration and Login ---
-# User Registration (POST /register)
 @app.route('/register', methods=['POST'])
 def register():
     try:
@@ -44,7 +69,6 @@ def register():
         print(f"Error: {e}")
         return jsonify({"error": "An error occurred while processing the registration"}), 500
 
-# User Login (POST /login)
 @app.route('/login', methods=['POST'])
 def login():
     try:
@@ -62,101 +86,60 @@ def login():
         if not check_password_hash(user['password'], password):
             return jsonify({"error": "Invalid username or password"}), 400
 
-        return jsonify({"message": "Login successful"}), 200
+        # Generate JWT token
+        token = generate_token(user['_id'])
+        return jsonify({"message": "Login successful", "token": token}), 200
     except Exception as e:
         print(f"Error: {e}")
         return jsonify({"error": "An error occurred while processing the login"}), 500
-
-# --- Admin Routes ---
-# Admin Registration (POST /admin/register)
-@app.route('/admin/register', methods=['POST'])
-def admin_register():
-    try:
-        data = request.json
-        if not data.get('username') or not data.get('password'):
-            return jsonify({"error": "Username and password are required"}), 400
-
-        # Check if the admin already exists
-        if db.admins.find_one({"username": data['username']}):
-            return jsonify({"error": "Admin already exists"}), 400
-
-        # Insert the new admin
-        db.admins.insert_one({
-            "username": data['username'],
-            "password": generate_password_hash(data['password']),
-        })
-        return jsonify({"message": "Admin registered successfully"}), 201
-    except Exception as e:
-        print(f"Error: {e}")
-        return jsonify({"error": "An error occurred while processing the admin registration"}), 500
-
-# Admin Login (POST /admin/login)
-@app.route('/admin/login', methods=['POST'])
-def admin_login():
-    try:
-        data = request.json
-        username = data.get('username')
-        password = data.get('password')
-
-        if not username or not password:
-            return jsonify({"error": "Username and password are required"}), 400
-
-        admin = db.admins.find_one({"username": username})
-        if not admin:
-            return jsonify({"error": "Invalid username or password"}), 400
-
-        if not check_password_hash(admin['password'], password):
-            return jsonify({"error": "Invalid username or password"}), 400
-
-        return jsonify({"message": "Admin login successful"}), 200
-    except Exception as e:
-        print(f"Error: {e}")
-        return jsonify({"error": "An error occurred while processing the admin login"}), 500
-
-# Admin: Get All Users (GET /admin/users)
-@app.route('/admin/users', methods=['GET'])
-def get_users():
-    try:
-        users = list(db.users.find())
-        users = [{key: object_id_to_str(value) for key, value in user.items()} for user in users]
-        return jsonify(users), 200
-    except Exception as e:
-        print(f"Error: {e}")
-        return jsonify({"error": "An error occurred while fetching users"}), 500
-
-# Admin: Delete User (DELETE /admin/users/<user_id>)
-@app.route('/admin/users/<user_id>', methods=['DELETE'])
-def delete_user(user_id):
-    try:
-        result = db.users.delete_one({"_id": ObjectId(user_id)})
-        if result.deleted_count == 0:
-            return jsonify({"error": "User not found"}), 404
-        return jsonify({"message": "User deleted successfully"}), 200
-    except Exception as e:
-        print(f"Error: {e}")
-        return jsonify({"error": "An error occurred while deleting the user"}), 500
 
 # --- Expense Routes ---
 # Add Expense (POST /expenses)
 @app.route('/expenses', methods=['POST'])
 def add_expense():
     try:
+        # Get the token from the request headers
+        token = request.headers.get('Authorization')
+        if not token:
+            return jsonify({"error": "Token is missing"}), 400
+
+        # Verify the token and get the user ID
+        user_id = verify_token(token)
+        if not user_id:
+            return jsonify({"error": "Invalid or expired token"}), 401
+
+        # Get expense data from the request
         data = request.json
         if not data.get('title') or not data.get('amount'):
             return jsonify({"error": "Title and amount are required"}), 400
 
-        # Insert the expense
-        db.expenses.insert_one(data)
+        # Insert the expense with the associated user_id
+        db.expenses.insert_one({
+            "title": data['title'],
+            "amount": data['amount'],
+            "user_id": ObjectId(user_id)
+        })
         return jsonify({"message": "Expense added successfully"}), 201
     except Exception as e:
         print(f"Error: {e}")
         return jsonify({"error": "An error occurred while adding the expense"}), 500
 
-# Get Expenses (GET /expenses)
+# Get Expenses for a specific user (GET /expenses)
 @app.route('/expenses', methods=['GET'])
 def get_expenses():
     try:
-        expenses = list(db.expenses.find())
+        # Get the token from the request headers
+        token = request.headers.get('Authorization')
+        if not token:
+            return jsonify({"error": "Token is missing"}), 400
+
+        # Verify the token and get the user ID
+        user_id = verify_token(token)
+        if not user_id:
+            return jsonify({"error": "Invalid or expired token"}), 401
+
+        # Fetch expenses for the logged-in user
+        expenses = list(db.expenses.find({"user_id": ObjectId(user_id)}))
         expenses = [{key: object_id_to_str(value) for key, value in expense.items()} for expense in expenses]
         return jsonify(expenses), 200
     except Exception as e:
