@@ -24,17 +24,19 @@ def object_id_to_str(obj):
 def register():
     try:
         data = request.json
-        if not data.get('username') or not data.get('password'):
-            return jsonify({"error": "Username and password are required"}), 400
+        if not data.get('username') or not data.get('password') or not data.get('sex') or not data.get('occupation'):
+            return jsonify({"error": "Username, password, sex, and occupation are required"}), 400
 
         # Check if the user already exists
         if db.users.find_one({"username": data['username']}):
             return jsonify({"error": "User already exists"}), 400
 
-        # Insert the new user
+        # Insert the new user with sex and occupation
         db.users.insert_one({
             "username": data['username'],
-            "password": generate_password_hash(data['password'])
+            "password": generate_password_hash(data['password']),
+            "sex": data['sex'],
+            "occupation": data['occupation']
         })
         return jsonify({"message": "User registered successfully"}), 201
     except Exception as e:
