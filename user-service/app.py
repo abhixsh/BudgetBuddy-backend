@@ -146,5 +146,65 @@ def get_expenses():
         print(f"Error: {e}")
         return jsonify({"error": "An error occurred while fetching expenses"}), 500
 
+@app.route('/expenses/<expense_id>', methods=['PUT'])
+def update_expense(expense_id):
+    try:
+        # Get the token from the request headers
+        token = request.headers.get('Authorization')
+        if not token:
+            return jsonify({"error": "Token is missing"}), 400
+
+        # Verify the token and get the user ID
+        user_id = verify_token(token)
+        if not user_id:
+            return jsonify({"error": "Invalid or expired token"}), 401
+
+        # Get the new data from the request
+        data = request.json
+        if not data.get('title') or not data.get('amount'):
+            return jsonify({"error": "Title and amount are required"}), 400
+
+        # Find the expense by ID and check if the user owns it
+        expense = db.expenses.find_one({"_id": ObjectId(expense_id), "user_id": ObjectId(user_id)})
+        if not expense:
+            return jsonify({"error": "Expense not found or not authorized to update"}), 404
+
+        # Update the expense
+        db.expenses.update_one(
+            {"_id": ObjectId(expense_id)},
+            {"$set": {"title": data['title'], "amount": data['amount']}}
+        )
+        return jsonify({"message": "Expense updated successfully"}), 200
+    except Exception as e:
+        print(f"Error: {e}")
+        return jsonify({"error": "An error occurred while updating the expense"}), 500
+
+
+# Delete Expense (DELETE /expenses/<expenseId>)
+@app.route('/expenses/<expense_id>', methods=['DELETE'])
+def delete_expense(expense_id):
+    try:
+        # Get the token from the request headers
+        token = request.headers.get('Authorization')
+        if not token:
+            return jsonify({"error": "Token is missing"}), 400
+
+        # Verify the token and get the user ID
+        user_id = verify_token(token)
+        if not user_id:
+            return jsonify({"error": "Invalid or expired token"}), 401
+
+        # Find the expense by ID and check if the user owns it
+        expense = db.expenses.find_one({"_id": ObjectId(expense_id), "user_id": ObjectId(user_id)})
+        if not expense:
+            return jsonify({"error": "Expense not found or not authorized to delete"}), 404
+
+        # Delete the expense
+        db.expenses.delete_one({"_id": ObjectId(expense_id)})
+        return jsonify({"message": "Expense deleted successfully"}), 200
+    except Exception as e:
+        print(f"Error: {e}")
+        return jsonify({"error": "An error occurred while deleting the expense"}), 500
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5001)
