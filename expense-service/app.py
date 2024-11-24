@@ -14,6 +14,11 @@ client = MongoClient(os.getenv("MONGO_URI"))
 db = client.expense_manager  # Database name
 expenses_collection = db.expenses  # Collection name
 
+# Route to check if the service is working
+@app.route('/', methods=['GET'])
+def health_check():
+    return jsonify({"message": "Expenses service is working"}), 200
+
 # Route to create a new expense
 @app.route('/expenses', methods=['POST'])
 def add_expense():
