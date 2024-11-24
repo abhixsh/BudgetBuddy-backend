@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS  # Import CORS
 from pymongo import MongoClient
 import os
 from dotenv import load_dotenv
@@ -8,6 +9,9 @@ from bson import ObjectId
 load_dotenv()
 
 app = Flask(__name__)
+
+# Enable CORS for the whole app
+CORS(app, origins="http://localhost:5173")  # Allow React frontend running at localhost:3000
 
 # Connect to MongoDB using the URI from .env file
 client = MongoClient(os.getenv("MONGO_URI"))
@@ -55,7 +59,6 @@ def get_expenses():
 @app.route('/expenses/<expense_id>', methods=['GET'])
 def get_expense(expense_id):
     try:
-        # Convert expense_id to ObjectId
         if not ObjectId.is_valid(expense_id):
             return jsonify({"error": "Invalid expense ID format"}), 400
 
@@ -72,11 +75,9 @@ def get_expense(expense_id):
 @app.route('/expenses/<expense_id>', methods=['PUT'])
 def update_expense(expense_id):
     try:
-        # Convert expense_id to ObjectId
         if not ObjectId.is_valid(expense_id):
             return jsonify({"error": "Invalid expense ID format"}), 400
 
-        # Check if the request body contains the necessary fields
         updated_expense = {
             "description": request.json.get("description"),
             "amount": request.json.get("amount"),
@@ -84,7 +85,6 @@ def update_expense(expense_id):
             "date": request.json.get("date")
         }
 
-        # Filter out any None values (fields not provided)
         updated_expense = {key: value for key, value in updated_expense.items() if value is not None}
 
         if not updated_expense:
@@ -102,7 +102,6 @@ def update_expense(expense_id):
 @app.route('/expenses/<expense_id>', methods=['DELETE'])
 def delete_expense(expense_id):
     try:
-        # Convert expense_id to ObjectId
         if not ObjectId.is_valid(expense_id):
             return jsonify({"error": "Invalid expense ID format"}), 400
 
