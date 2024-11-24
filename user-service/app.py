@@ -5,29 +5,18 @@ from flask_cors import CORS
 from bson import ObjectId
 import jwt
 import datetime
-import os
-from dotenv import load_dotenv
 
-# Load environment variables from .env file
-load_dotenv()
-
-# Initialize Flask app
 app = Flask(__name__)
 
 # Enable CORS with credentials support
-CORS(app, origins=["http://localhost:5173"], supports_credentials=True)
+CORS(app, origins=["http://localhost:5173"], supports_credentials=True)  # Allow requests from the frontend port (React app)
 
-# --- Updated: Use environment variables ---
-MONGO_URI = os.getenv("MONGO_URI")  # MongoDB connection string
-SECRET_KEY = os.getenv("SECRET_KEY")  # JWT secret key
-
-# Print to verify environment variables are loaded correctly
-print("Mongo URI:", MONGO_URI)
-print("Secret Key:", SECRET_KEY)
-
-# MongoDB connection
-mongo_client = MongoClient(MONGO_URI)
+# MongoDB connection string
+mongo_client = MongoClient("mongodb+srv://alokaabishek9:jrTKPYC3wc0eApYt@nutricare.lmquo7d.mongodb.net/?retryWrites=true&w=majority&appName=NutriCare")
 db = mongo_client['user_db']
+
+# Secret key for JWT encoding/decoding
+SECRET_KEY = 'your_secret_key'
 
 # Function to convert MongoDB ObjectId to string
 def object_id_to_str(obj):
@@ -55,10 +44,6 @@ def verify_token(token):
         return None
     except jwt.InvalidTokenError:
         return None
-
-@app.route('/')
-def home():
-    return "Hello, Flask!"
 
 # --- Regular User Registration and Login ---
 @app.route('/register', methods=['POST'])
@@ -107,6 +92,67 @@ def login():
     except Exception as e:
         print(f"Error: {e}")
         return jsonify({"error": "An error occurred while processing the login"}), 500
+
+# --- Expense Routes ---
+# Add Expense (POST /expenses)
+@app.route('/expenses', methods=['POST'])
+def add_expense():
+    try:
+        # Get the token from the request headers
+        token = request.headers.get('Authorization')
+        if not token:
+            return jsonify({"error": "Token is missing"}), 400
+
+        # Remove 'Bearer ' prefix if present
+        if token.startswith('Bearer '):
+            token = token[7:]
+
+        # Verify the token and get the user ID
+        user_id = verify_token(token)
+        if not user_id:
+            return jsonify({"error": "Invalid or expired token"}), 401
+
+        # Get expense data from the request
+        data = request.json
+        if not data.get('title') or not data.get('amount'):
+            return jsonify({"error": "Title and amount are required"}), 400
+
+        # Insert the expense with the associated user_id
+        db.expenses.insert_one({
+            "title": data['title'],
+            "amount": data['amount'],
+            "user_id": ObjectId(user_id)
+        })
+        return jsonify({"message": "Expense added successfully"}), 201
+    except Exception as e:
+        print(f"Error: {e}")
+        return jsonify({"error": "An error occurred while adding the expense"}), 500
+
+# Get Expenses for a specific user (GET /expenses)
+@app.route('/expenses', methods=['GET'])
+def get_expenses():
+    try:
+        # Get the token from the request headers
+        token = request.headers.get('Authorization')
+        if not token:
+            return jsonify({"error": "Token is missing"}), 400
+
+        # Remove 'Bearer ' prefix if present
+        if token.startswith('Bearer '):
+            token = token[7:]
+
+        # Verify the token and get the user ID
+        user_id = verify_token(token)
+        if not user_id:
+            return jsonify({"error": "Invalid or expired token"}), 401
+
+        # Fetch expenses for the logged-in user
+        expenses = list(db.expenses.find({"user_id": ObjectId(user_id)}))
+        expenses = [{key: object_id_to_str(value) for key, value in expense.items()} for expense in expenses]
+        return jsonify(expenses), 200
+    except Exception as e:
+        print(f"Error: {e}")
+        return jsonify({"error": "An error occurred while fetching expenses"}), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5001)
