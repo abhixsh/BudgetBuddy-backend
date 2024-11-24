@@ -307,7 +307,7 @@ For GET, PUT, and DELETE requests to `/admin/user/<user_id>`, include the header
 admin_username: {{admin_username}}
 admin_password: {{admin_password}}
 ```
-
+![Postman](img/image.png)
 ## Frontend
 
 The frontend for the BudgetBuddy Expense Tracker can be found in the [frontend repository](https://github.com/abhixsh/BudgetBuddy).
