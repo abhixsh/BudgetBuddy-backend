@@ -1,53 +1,74 @@
 from flask import Flask, request, jsonify
 from pymongo import MongoClient
 from bson import ObjectId
-import jwt
+import os
+from dotenv import load_dotenv
 
+# Load environment variables from .env file
+load_dotenv()
+
+# Initialize Flask app
 app = Flask(__name__)
 
-# MongoDB connection
-mongo_client = MongoClient("your_mongodb_connection_string")
-db = mongo_client['expense_db']
+# MongoDB connection string from environment variable
+MONGO_URI = os.getenv("MONGO_URI")
+mongo_client = MongoClient(MONGO_URI)
+db = mongo_client['user_db']
 
-# Secret key for JWT
-SECRET_KEY = 'your_secret_key'
+# Secret key for JWT from environment variable
+SECRET_KEY = os.getenv("SECRET_KEY")
 
-def verify_token(token):
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
-        return payload['user_id']
-    except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
-        return None
+# --- Expense CRUD Operations --- 
 
+# Add an expense
 @app.route('/expenses', methods=['POST'])
 def add_expense():
-    token = request.headers.get('Authorization')
-    user_id = verify_token(token)
-    if not user_id:
-        return jsonify({"error": "Invalid or expired token"}), 401
-
     data = request.json
     if not all(key in data for key in ['title', 'amount']):
         return jsonify({"error": "Title and amount are required"}), 400
 
     db.expenses.insert_one({
         "title": data['title'],
-        "amount": data['amount'],
-        "user_id": ObjectId(user_id)
+        "amount": data['amount']
     })
     return jsonify({"message": "Expense added successfully"}), 201
 
+# Get all expenses
 @app.route('/expenses', methods=['GET'])
 def get_expenses():
-    token = request.headers.get('Authorization')
-    user_id = verify_token(token)
-    if not user_id:
-        return jsonify({"error": "Invalid or expired token"}), 401
-
-    expenses = list(db.expenses.find({"user_id": ObjectId(user_id)}))
+    expenses = list(db.expenses.find())
     for expense in expenses:
         expense['_id'] = str(expense['_id'])
     return jsonify(expenses), 200
+
+# Update an expense by ID
+@app.route('/expenses/<expense_id>', methods=['PUT'])
+def update_expense(expense_id):
+    data = request.json
+    if not data.get('title') or not data.get('amount'):
+        return jsonify({"error": "Title and amount are required"}), 400
+
+    updated_expense = db.expenses.find_one_and_update(
+        {"_id": ObjectId(expense_id)},
+        {"$set": {"title": data['title'], "amount": data['amount']}},
+        return_document=True
+    )
+
+    if updated_expense:
+        updated_expense['_id'] = str(updated_expense['_id'])
+        return jsonify(updated_expense), 200
+    else:
+        return jsonify({"error": "Expense not found"}), 404
+
+# Delete an expense by ID
+@app.route('/expenses/<expense_id>', methods=['DELETE'])
+def delete_expense(expense_id):
+    result = db.expenses.delete_one({"_id": ObjectId(expense_id)})
+
+    if result.deleted_count == 1:
+        return jsonify({"message": "Expense deleted successfully"}), 200
+    else:
+        return jsonify({"error": "Expense not found"}), 404
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5002)
