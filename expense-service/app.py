@@ -36,10 +36,17 @@ def add_expense():
 # Get all expenses
 @app.route('/expenses', methods=['GET'])
 def get_expenses():
-    expenses = list(db.expenses.find())
-    for expense in expenses:
-        expense['_id'] = str(expense['_id'])
-    return jsonify(expenses), 200
+    try:
+        expenses = list(db.expenses.find())
+        
+        # Convert ObjectId to string before returning as JSON
+        for expense in expenses:
+            expense['_id'] = str(expense['_id'])  # Convert ObjectId to string
+        
+        return jsonify(expenses), 200
+    except Exception as e:
+        print(f"Error fetching expenses: {e}")
+        return jsonify({"error": "Failed to fetch expenses", "message": str(e)}), 500
 
 # Update an expense by ID
 @app.route('/expenses/<expense_id>', methods=['PUT'])
@@ -55,7 +62,7 @@ def update_expense(expense_id):
     )
 
     if updated_expense:
-        updated_expense['_id'] = str(updated_expense['_id'])
+        updated_expense['_id'] = str(updated_expense['_id'])  # Convert ObjectId to string
         return jsonify(updated_expense), 200
     else:
         return jsonify({"error": "Expense not found"}), 404
@@ -69,6 +76,13 @@ def delete_expense(expense_id):
         return jsonify({"message": "Expense deleted successfully"}), 200
     else:
         return jsonify({"error": "Expense not found"}), 404
+
+# Generic error handler to capture unexpected errors
+@app.errorhandler(Exception)
+def handle_exception(error):
+    # Log the full traceback to the console for debugging
+    print(f"Error: {error}")
+    return jsonify({"error": "Internal Server Error", "message": str(error)}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5002)
