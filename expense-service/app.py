@@ -110,4 +110,4 @@ def delete_expense(expense_id):
         return jsonify({"error": f"Error deleting expense: {str(e)}"}), 400
 
 if __name__ == '__main__':
-    app.run(debug=True, host="0.0.0.0", port=5002)
+    app.run(debug=True, host="localhost", port=5002)
