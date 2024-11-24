@@ -39,7 +39,7 @@ def get_expenses():
     try:
         expenses = list(db.expenses.find())
         
-        # Convert ObjectId to string before returning as JSON
+        # Convert ObjectId to string for every expense in the list
         for expense in expenses:
             expense['_id'] = str(expense['_id'])  # Convert ObjectId to string
         
