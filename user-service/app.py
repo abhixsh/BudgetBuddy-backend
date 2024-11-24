@@ -11,14 +11,13 @@ load_dotenv()
 
 app = Flask(__name__)
 
-# Enable CORS for the whole app
-CORS(app, origins="http://localhost:5173")  # Allow React frontend running at localhost:3000
+# Enable CORS for specific routes (for admin)
+CORS(app, origins="http://localhost:5173", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 
 # Connect to MongoDB using the URI from .env file
 client = MongoClient(os.getenv("MONGO_URI"))
 db = client.expense_manager  # Database name
-expenses_collection = db.expenses  # Collection name for expenses
-users_collection = db.users  # Collection name for users (add this line)
+users_collection = db.users  # Collection name for users
 
 # Helper function to hash passwords
 def hash_password(password):
@@ -111,6 +110,22 @@ def login_admin():
 
     return jsonify({"message": "Admin login successful"}), 200
 
+# Admin CRUD - Get All Users and Admins
+@app.route('/admin/users', methods=['GET'])
+def get_users_and_admins():
+    try:
+        admin_username = request.headers.get('admin_username')
+        admin_password = request.headers.get('admin_password')
+        # Admin authentication
+        admin_authenticate(admin_username, admin_password)
+
+        users = users_collection.find()
+        users_list = [{"_id": str(user["_id"]), "username": user["username"], "role": user["role"]} for user in users]
+
+        return jsonify(users_list), 200
+    except PermissionError:
+        return jsonify({"message": "Invalid admin credentials"}), 403
+
 # Admin CRUD - Create User
 @app.route('/admin/user', methods=['POST'])
 def create_user():
@@ -161,27 +176,35 @@ def create_user():
         }
     }), 201
 
-
 # Admin CRUD - Read User
 @app.route('/admin/user/<user_id>', methods=['GET'])
 def read_user(user_id):
-    admin_authenticate(request.args.get('admin_username'), request.args.get('admin_password'))
+    try:
+        admin_username = request.headers.get('admin_username')
+        admin_password = request.headers.get('admin_password')
+        # Admin authentication
+        admin_authenticate(admin_username, admin_password)
 
-    user = users_collection.find_one({"_id": ObjectId(user_id)})
+        user = users_collection.find_one({"_id": ObjectId(user_id)})
 
-    if not user:
-        return jsonify({"message": "User not found"}), 404
+        if not user:
+            return jsonify({"message": "User not found"}), 404
 
-    return jsonify({
-        "username": user["username"],
-        "role": user["role"]
-    }), 200
+        return jsonify({
+            "username": user["username"],
+            "role": user["role"]
+        }), 200
+    except PermissionError:
+        return jsonify({"message": "Invalid admin credentials"}), 403
 
 # Admin CRUD - Update User
 @app.route('/admin/user/<user_id>', methods=['PUT'])
 def update_user(user_id):
     data = request.get_json()
-    admin_authenticate(data.get('admin_username'), data.get('admin_password'))
+    try:
+        admin_authenticate(data.get('admin_username'), data.get('admin_password'))
+    except PermissionError:
+        return jsonify({"message": "Invalid admin credentials"}), 403
 
     updated_data = {}
     if 'username' in data:
@@ -199,7 +222,10 @@ def update_user(user_id):
 # Admin CRUD - Delete User
 @app.route('/admin/user/<user_id>', methods=['DELETE'])
 def delete_user(user_id):
-    admin_authenticate(request.args.get('admin_username'), request.args.get('admin_password'))
+    try:
+        admin_authenticate(request.args.get('admin_username'), request.args.get('admin_password'))
+    except PermissionError:
+        return jsonify({"message": "Invalid admin credentials"}), 403
 
     result = users_collection.delete_one({"_id": ObjectId(user_id)})
 
