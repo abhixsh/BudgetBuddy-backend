@@ -114,21 +114,49 @@ def create_user():
     username = data.get('username')
     password = data.get('password')
 
-    admin_authenticate(data.get('admin_username'), data.get('admin_password'))
+    # Admin authentication
+    try:
+        admin_authenticate(data.get('admin_username'), data.get('admin_password'))
+    except PermissionError:
+        return jsonify({"message": "Invalid admin credentials"}), 403
 
+    # Check if username and password are provided
     if not username or not password:
         return jsonify({"message": "Username and password are required"}), 400
 
+    # Check if the user already exists
+    if users_collection.find_one({"username": username}):
+        return jsonify({"message": "Username already taken"}), 400
+
+    # Hash the password
     hashed_password = hash_password(password)
 
+    # Create new user object
     new_user = {
         "username": username,
         "password": hashed_password,
         "role": "user"
     }
 
-    users_collection.insert_one(new_user)
-    return jsonify({"message": "User created by admin"}), 201
+    # Insert new user into the database
+    result = users_collection.insert_one(new_user)
+
+    # Fetch the newly created user to return their details in the response
+    created_user = users_collection.find_one({"_id": result.inserted_id})
+
+    # Remove password from the response data for security reasons
+    created_user.pop('password', None)
+
+    # Return a response with the message and created user details, including _id
+    return jsonify({
+        "message": "User created by admin",
+        "user": {
+            "id": str(created_user["_id"]),  # Include MongoDB ObjectId as a string
+            "username": created_user["username"],
+            "role": created_user["role"]
+        }
+    }), 201
+
 
 # Admin CRUD - Read User
 @app.route('/admin/user/<user_id>', methods=['GET'])
