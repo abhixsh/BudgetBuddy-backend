@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify, make_response
+from flask_cors import CORS  # Import CORS
 from pymongo import MongoClient
 from bson.objectid import ObjectId
 import bcrypt
@@ -9,6 +10,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
+
+# Enable CORS for the whole app
+CORS(app, origins="http://localhost:5173")  # Allow React frontend running at localhost:3000
 
 # Connect to MongoDB using the URI from .env file
 client = MongoClient(os.getenv("MONGO_URI"))
