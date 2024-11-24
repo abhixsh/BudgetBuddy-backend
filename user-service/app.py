@@ -1,112 +1,215 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, make_response
 from pymongo import MongoClient
-from werkzeug.security import generate_password_hash, check_password_hash
-from flask_cors import CORS
-from bson import ObjectId
-import jwt
-import datetime
+from bson.objectid import ObjectId
+import bcrypt
 import os
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
+# Load environment variables
 load_dotenv()
 
-# Initialize Flask app
 app = Flask(__name__)
 
-# Enable CORS with credentials support
-CORS(app, origins=["http://localhost:5173"], supports_credentials=True)
+# Connect to MongoDB using the URI from .env file
+client = MongoClient(os.getenv("MONGO_URI"))
+db = client.expense_manager  # Database name
+expenses_collection = db.expenses  # Collection name for expenses
+users_collection = db.users  # Collection name for users (add this line)
 
-# --- Updated: Use environment variables ---
-MONGO_URI = os.getenv("MONGO_URI")  # MongoDB connection string
-SECRET_KEY = os.getenv("SECRET_KEY")  # JWT secret key
+# Helper function to hash passwords
+def hash_password(password):
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
 
-# Print to verify environment variables are loaded correctly
-print("Mongo URI:", MONGO_URI)
-print("Secret Key:", SECRET_KEY)
+# Helper function to check password
+def check_password(stored_password, input_password):
+    return bcrypt.checkpw(input_password.encode('utf-8'), stored_password)
 
-# MongoDB connection
-mongo_client = MongoClient(MONGO_URI)
-db = mongo_client['user_db']
-
-# Function to convert MongoDB ObjectId to string
-def object_id_to_str(obj):
-    if isinstance(obj, ObjectId):
-        return str(obj)
-    return obj
-
-# --- User Authentication ---
-# Function to generate JWT token
-def generate_token(user_id):
-    expiration_time = datetime.datetime.utcnow() + datetime.timedelta(hours=1)
-    payload = {
-        'user_id': str(user_id),
-        'exp': expiration_time
-    }
-    token = jwt.encode(payload, SECRET_KEY, algorithm='HS256')
-    return token
-
-# Function to verify JWT token and get user ID
-def verify_token(token):
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
-        return payload['user_id']
-    except jwt.ExpiredSignatureError:
-        return None
-    except jwt.InvalidTokenError:
-        return None
-
-@app.route('/')
-def home():
-    return "Hello, Flask!"
-
-# --- Regular User Registration and Login ---
+# User Registration
 @app.route('/register', methods=['POST'])
-def register():
-    try:
-        data = request.json
-        if not data.get('username') or not data.get('password') or not data.get('sex') or not data.get('occupation'):
-            return jsonify({"error": "Username, password, sex, and occupation are required"}), 400
+def register_user():
+    data = request.get_json()
+    username = data.get('username')
+    password = data.get('password')
 
-        # Check if the user already exists
-        if db.users.find_one({"username": data['username']}):
-            return jsonify({"error": "User already exists"}), 400
+    if not username or not password:
+        return jsonify({"message": "Username and password are required"}), 400
 
-        # Insert the new user with sex and occupation
-        db.users.insert_one({
-            "username": data['username'],
-            "password": generate_password_hash(data['password']),
-            "sex": data['sex'],
-            "occupation": data['occupation']
-        })
-        return jsonify({"message": "User registered successfully"}), 201
-    except Exception as e:
-        print(f"Error: {e}")
-        return jsonify({"error": "An error occurred while processing the registration"}), 500
+    # Check if user already exists
+    if users_collection.find_one({"username": username}):
+        return jsonify({"message": "Username already taken"}), 400
 
+    hashed_password = hash_password(password)
+
+    new_user = {
+        "username": username,
+        "password": hashed_password,
+        "role": "user"  # Default role is 'user'
+    }
+
+    users_collection.insert_one(new_user)
+    return jsonify({"message": "User registered successfully"}), 201
+
+# User Login
 @app.route('/login', methods=['POST'])
-def login():
+def login_user():
+    data = request.get_json()
+    username = data.get('username')
+    password = data.get('password')
+
+    if not username or not password:
+        return jsonify({"message": "Username and password are required"}), 400
+
+    user = users_collection.find_one({"username": username})
+
+    if not user or not check_password(user["password"], password):
+        return jsonify({"message": "Invalid username or password"}), 401
+
+    return jsonify({"message": "Login successful"}), 200
+
+# Admin Registration
+@app.route('/admin/register', methods=['POST'])
+def register_admin():
+    data = request.get_json()
+    username = data.get('username')
+    password = data.get('password')
+
+    if not username or not password:
+        return jsonify({"message": "Username and password are required"}), 400
+
+    if users_collection.find_one({"username": username}):
+        return jsonify({"message": "Username already taken"}), 400
+
+    hashed_password = hash_password(password)
+
+    new_admin = {
+        "username": username,
+        "password": hashed_password,
+        "role": "admin"
+    }
+
+    users_collection.insert_one(new_admin)
+    return jsonify({"message": "Admin registered successfully"}), 201
+
+# Admin Login
+@app.route('/admin/login', methods=['POST'])
+def login_admin():
+    data = request.get_json()
+    username = data.get('username')
+    password = data.get('password')
+
+    if not username or not password:
+        return jsonify({"message": "Username and password are required"}), 400
+
+    admin = users_collection.find_one({"username": username, "role": "admin"})
+
+    if not admin or not check_password(admin["password"], password):
+        return jsonify({"message": "Invalid admin credentials"}), 401
+
+    return jsonify({"message": "Admin login successful"}), 200
+
+# Admin CRUD - Create User
+@app.route('/admin/user', methods=['POST'])
+def create_user():
+    data = request.get_json()
+    username = data.get('username')
+    password = data.get('password')
+
+    # Admin authentication
     try:
-        data = request.json
-        username = data.get('username')
-        password = data.get('password')
+        admin_authenticate(data.get('admin_username'), data.get('admin_password'))
+    except PermissionError:
+        return jsonify({"message": "Invalid admin credentials"}), 403
 
-        if not username or not password:
-            return jsonify({"error": "Username and password are required"}), 400
+    # Check if username and password are provided
+    if not username or not password:
+        return jsonify({"message": "Username and password are required"}), 400
 
-        user = db.users.find_one({"username": username})
-        if not user:
-            return jsonify({"error": "Invalid username or password"}), 400
+    # Check if the user already exists
+    if users_collection.find_one({"username": username}):
+        return jsonify({"message": "Username already taken"}), 400
 
-        if not check_password_hash(user['password'], password):
-            return jsonify({"error": "Invalid username or password"}), 400
+    # Hash the password
+    hashed_password = hash_password(password)
 
-        # Generate JWT token
-        token = generate_token(user['_id'])
-        return jsonify({"message": "Login successful", "token": token}), 200
-    except Exception as e:
-        print(f"Error: {e}")
-        return jsonify({"error": "An error occurred while processing the login"}), 500
+    # Create new user object
+    new_user = {
+        "username": username,
+        "password": hashed_password,
+        "role": "user"
+    }
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5001)
+    # Insert new user into the database
+    result = users_collection.insert_one(new_user)
+
+    # Fetch the newly created user to return their details in the response
+    created_user = users_collection.find_one({"_id": result.inserted_id})
+
+    # Remove password from the response data for security reasons
+    created_user.pop('password', None)
+
+    # Return a response with the message and created user details, including _id
+    return jsonify({
+        "message": "User created by admin",
+        "user": {
+            "id": str(created_user["_id"]),  # Include MongoDB ObjectId as a string
+            "username": created_user["username"],
+            "role": created_user["role"]
+        }
+    }), 201
+
+
+# Admin CRUD - Read User
+@app.route('/admin/user/<user_id>', methods=['GET'])
+def read_user(user_id):
+    admin_authenticate(request.args.get('admin_username'), request.args.get('admin_password'))
+
+    user = users_collection.find_one({"_id": ObjectId(user_id)})
+
+    if not user:
+        return jsonify({"message": "User not found"}), 404
+
+    return jsonify({
+        "username": user["username"],
+        "role": user["role"]
+    }), 200
+
+# Admin CRUD - Update User
+@app.route('/admin/user/<user_id>', methods=['PUT'])
+def update_user(user_id):
+    data = request.get_json()
+    admin_authenticate(data.get('admin_username'), data.get('admin_password'))
+
+    updated_data = {}
+    if 'username' in data:
+        updated_data["username"] = data['username']
+    if 'password' in data:
+        updated_data["password"] = hash_password(data['password'])
+
+    result = users_collection.update_one({"_id": ObjectId(user_id)}, {"$set": updated_data})
+
+    if result.matched_count == 0:
+        return jsonify({"message": "User not found"}), 404
+
+    return jsonify({"message": "User updated successfully"}), 200
+
+# Admin CRUD - Delete User
+@app.route('/admin/user/<user_id>', methods=['DELETE'])
+def delete_user(user_id):
+    admin_authenticate(request.args.get('admin_username'), request.args.get('admin_password'))
+
+    result = users_collection.delete_one({"_id": ObjectId(user_id)})
+
+    if result.deleted_count == 0:
+        return jsonify({"message": "User not found"}), 404
+
+    return jsonify({"message": "User deleted successfully"}), 200
+
+# Helper function to authenticate admin
+def admin_authenticate(username, password):
+    admin = users_collection.find_one({"username": username, "role": "admin"})
+
+    if not admin or not check_password(admin["password"], password):
+        raise PermissionError("Invalid admin credentials")
+
+if __name__ == '__main__':
+    app.run(debug=True)
